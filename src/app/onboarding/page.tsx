@@ -113,23 +113,39 @@ export default function OnboardingPage() {
   };
 
   const convertBedtimeToTime = (bedtimeLabel: string): string => {
+    if (!bedtimeLabel) return "22:00:00";
+    
+    // Normalize the label - replace all types of dashes with regular dash
+    const normalized = bedtimeLabel.replace(/–|—|-/g, '-').trim();
+    
     const timeMap: Record<string, string> = {
       "Before 10PM": "21:00:00",
-      "10PM–12AM": "22:00:00",
-      "12AM–2AM": "00:00:00",
+      "10PM-12AM": "22:00:00",
+      "12AM-2AM": "00:00:00",
       "After 2AM": "02:30:00"
     };
-    return timeMap[bedtimeLabel] || "22:00:00";
+    
+    const result = timeMap[normalized];
+    console.log("[v0] Converting bedtime:", { input: bedtimeLabel, normalized, result });
+    return result || "22:00:00";
   };
 
   const convertWakeupToTime = (wakeupLabel: string): string => {
+    if (!wakeupLabel) return "06:30:00";
+    
+    // Normalize the label - replace all types of dashes with regular dash
+    const normalized = wakeupLabel.replace(/–|—|-/g, '-').trim();
+    
     const timeMap: Record<string, string> = {
       "Before 6AM": "05:00:00",
-      "6–8AM": "06:30:00",
-      "8–10AM": "08:00:00",
+      "6-8AM": "06:30:00",
+      "8-10AM": "08:00:00",
       "After 10AM": "10:30:00"
     };
-    return timeMap[wakeupLabel] || "06:30:00";
+    
+    const result = timeMap[normalized];
+    console.log("[v0] Converting wakeup:", { input: wakeupLabel, normalized, result });
+    return result || "06:30:00";
   };
 
   const completeOnboarding = async () => {
