@@ -82,7 +82,10 @@ export default function VaultPage() {
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !user) return;
+    if (!file || !user) {
+      console.error("[v0] No file or user", { hasFile: !!file, hasUser: !!user });
+      return;
+    }
 
     setUploading(true);
     try {
@@ -90,17 +93,26 @@ export default function VaultPage() {
       const fileName = `${Math.random()}.${fileExt}`;
       const filePath = `${user.id}/${fileName}`;
 
+      console.log("[v0] Uploading file:", { filePath, fileSize: file.size });
+
       // 1. Upload to Storage
       const { error: uploadError } = await supabase.storage
         .from('medical_reports')
         .upload(filePath, file);
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error("[v0] Storage upload error:", uploadError);
+        throw new Error(`Storage error: ${uploadError.message}`);
+      }
+
+      console.log("[v0] File uploaded to storage successfully");
 
       // 2. Get Public URL
       const { data: { publicUrl } } = supabase.storage
         .from('medical_reports')
         .getPublicUrl(filePath);
+
+      console.log("[v0] Got public URL:", publicUrl);
 
       // 3. Save to Table
       const { data, error: dbError } = await supabase
@@ -115,12 +127,22 @@ export default function VaultPage() {
         .select()
         .single();
 
-      if (dbError) throw dbError;
-      if (data) setFiles(prev => [data, ...prev]);
+      if (dbError) {
+        console.error("[v0] Database insert error:", dbError);
+        // If it's an RLS error, the user might not have a session or the policy isn't working
+        throw new Error(`Database error: ${dbError.message}`);
+      }
 
-    } catch (err) {
-      console.error("Upload failed", err);
-      alert("Upload failed. Please try again.");
+      console.log("[v0] File record created in database");
+      if (data) {
+        setFiles(prev => [data, ...prev]);
+        alert("File uploaded successfully!");
+      }
+
+    } catch (err: any) {
+      console.error("[v0] Upload failed:", err);
+      const errorMsg = err?.message || "Upload failed. Please try again.";
+      alert(errorMsg);
     } finally {
       setUploading(false);
     }

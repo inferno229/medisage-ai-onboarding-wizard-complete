@@ -47,19 +47,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    let initialized = false;
+
     const initialize = async () => {
+      if (initialized) return;
+      initialized = true;
+
       try {
-        console.warn("Initializing Auth context...");
+        console.log("[v0] Initializing Auth context...");
         const { data, error } = await supabase.auth.getSession();
         if (!mounted) return;
         if (error) {
           console.error("Failed to load session", error);
         }
-        console.log("Session loaded:", data.session ? "User found" : "No session");
+        console.log("[v0] Session loaded:", data.session ? "User found" : "No session");
         setUser(mapSupabaseUser(data.session?.user ?? null));
+        setLoading(false);
       } catch (err) {
         console.error("Auth initialization error:", err);
-      } finally {
         if (mounted) setLoading(false);
       }
     };
@@ -67,14 +72,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initialize();
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log("Auth state change:", event, session ? "User logged in" : "User logged out");
-      setUser(mapSupabaseUser(session?.user ?? null));
-      setLoading(false);
+      console.log("[v0] Auth state change:", event, session ? "User logged in" : "User logged out");
+      if (mounted) {
+        setUser(mapSupabaseUser(session?.user ?? null));
+        setLoading(false);
+      }
     });
 
     return () => {
       mounted = false;
-      authListener.subscription.unsubscribe();
+      authListener?.subscription?.unsubscribe();
     };
   }, []);
 
