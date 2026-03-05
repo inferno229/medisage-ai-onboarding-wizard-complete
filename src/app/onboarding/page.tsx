@@ -112,6 +112,26 @@ export default function OnboardingPage() {
     }
   };
 
+  const convertBedtimeToTime = (bedtimeLabel: string): string => {
+    const timeMap: Record<string, string> = {
+      "Before 10PM": "21:00:00",
+      "10PM–12AM": "22:00:00",
+      "12AM–2AM": "00:00:00",
+      "After 2AM": "02:30:00"
+    };
+    return timeMap[bedtimeLabel] || "22:00:00";
+  };
+
+  const convertWakeupToTime = (wakeupLabel: string): string => {
+    const timeMap: Record<string, string> = {
+      "Before 6AM": "05:00:00",
+      "6–8AM": "06:30:00",
+      "8–10AM": "08:00:00",
+      "After 10AM": "10:30:00"
+    };
+    return timeMap[wakeupLabel] || "06:30:00";
+  };
+
   const completeOnboarding = async () => {
     if (!user) return;
     setIsSaving(true);
@@ -135,8 +155,8 @@ export default function OnboardingPage() {
           work_type: data.workType,
           daily_steps_goal: data.dailySteps,
           diet: data.diet,
-          bedtime: data.bedtime,
-          wakeup_time: data.wakeupTime,
+          bedtime: convertBedtimeToTime(data.bedtime),
+          wakeup_time: convertWakeupToTime(data.wakeupTime),
           sleep_issue: data.sleepIssue,
           conditions: finalConditions,
           family_history: finalFamilyHistory,
@@ -168,10 +188,18 @@ export default function OnboardingPage() {
       await updateOnboarding(true);
       
       localStorage.removeItem("onboardingData");
+      console.log("[v0] Onboarding completed successfully!");
       router.push("/dashboard");
-    } catch (error) {
-      console.error("Failed to complete onboarding", error);
-      alert("Something went wrong. Please try again.");
+    } catch (error: any) {
+      console.error("[v0] Failed to complete onboarding", error);
+      const errorMessage = error?.message || "Something went wrong. Please try again.";
+      console.error("[v0] Error details:", {
+        code: error?.code,
+        message: error?.message,
+        details: error?.details,
+        hint: error?.hint
+      });
+      alert(`Onboarding error: ${errorMessage}`);
     } finally {
       setIsSaving(false);
     }
