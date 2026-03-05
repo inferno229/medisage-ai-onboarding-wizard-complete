@@ -36,6 +36,11 @@ export default function PlannerPage() {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+  const [notes, setNotes] = useState("");
+  const [reminderMinutes, setReminderMinutes] = useState(0);
+  const [timeError, setTimeError] = useState("");
   const [isAdding, setIsSaving] = useState(false);
 
   const fetchTasks = useCallback(async (date: string) => {
@@ -80,14 +85,23 @@ export default function PlannerPage() {
 
   const addTask = async () => {
     if (!newTaskTitle.trim() || !user) return;
+    if (!validateTimes()) return;
+
     setIsSaving(true);
     try {
+      const durationMin = startTime && endTime ? timeToMinutes(endTime) - timeToMinutes(startTime) : 0;
+      
       const { data, error } = await supabase
         .from('tasks')
         .insert({
           user_id: user.id,
           title: newTaskTitle,
           scheduled_date: selectedDate,
+          start_time: startTime || null,
+          end_time: endTime || null,
+          duration_minutes: durationMin > 0 ? durationMin : null,
+          reminder_minutes_before: reminderMinutes,
+          notes: notes || null,
           completed: false
         })
         .select()
@@ -96,8 +110,38 @@ export default function PlannerPage() {
       if (error) throw error;
       if (data) {
         setTasks(prev => [...prev, data]);
+        
+        // Schedule notification if reminder is set
+        if (startTime && reminderMinutes >= 0) {
+          const [timePart, period] = startTime.split(' ');
+          const [hours, minutes] = timePart.split(':').map(Number);
+          let notifyHours = hours;
+          if (period === 'PM' && hours !== 12) notifyHours += 12;
+          if (period === 'AM' && hours === 12) notifyHours = 0;
+          
+          const notifyDate = new Date(selectedDate);
+          notifyDate.setHours(notifyHours, minutes - reminderMinutes, 0);
+          
+          await scheduleNotification(`Reminder: ${newTaskTitle}`, notifyDate);
+        }
+
+        // Reset form and close modal
         setNewTaskTitle("");
+        setStartTime("");
+        setEndTime("");
+        setNotes("");
+        setReminderMinutes(0);
+        setTimeError("");
         setShowAddModal(false);
+        
+        // Show success message
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification('Task created!', {
+            body: `${newTaskTitle} has been added to your routine.`,
+            icon: '/icon.png',
+          });
+        }
+        
         refreshData();
       }
     } catch (err) {
@@ -116,6 +160,80 @@ export default function PlannerPage() {
       }
     } catch (err) {
       console.error("Delete task error:", err);
+    }
+  };
+
+  // Helper function to convert 12-hour time to minutes since midnight
+  const timeToMinutes = (time: string): number => {
+    if (!time) return 0;
+    const [timePart, period] = time.split(' ');
+    const [hours, minutes] = timePart.split(':').map(Number);
+    let totalMinutes = hours * 60 + minutes;
+    if (period === 'PM' && hours !== 12) totalMinutes += 12 * 60;
+    if (period === 'AM' && hours === 12) totalMinutes -= 12 * 60;
+    return totalMinutes;
+  };
+
+  // Helper function to convert minutes since midnight to 12-hour time
+  const minutesToTime = (minutes: number): string => {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    const period = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours > 12 ? hours - 12 : (hours === 0 ? 12 : hours);
+    return `${displayHours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')} ${period}`;
+  };
+
+  // Calculate duration between start and end time
+  const calculateDuration = (): string => {
+    if (!startTime || !endTime) return "";
+    const startMin = timeToMinutes(startTime);
+    const endMin = timeToMinutes(endTime);
+    
+    if (endMin <= startMin) return "";
+    
+    const durationMin = endMin - startMin;
+    if (durationMin < 60) {
+      return `${durationMin} mins`;
+    }
+    const hours = Math.floor(durationMin / 60);
+    const remainingMins = durationMin % 60;
+    return remainingMins > 0 ? `${hours}h ${remainingMins}m` : `${hours} hour${hours > 1 ? 's' : ''}`;
+  };
+
+  // Validate end time is after start time
+  const validateTimes = (): boolean => {
+    if (!startTime || !endTime) {
+      setTimeError("");
+      return true;
+    }
+    const startMin = timeToMinutes(startTime);
+    const endMin = timeToMinutes(endTime);
+    if (endMin <= startMin) {
+      setTimeError("End time must be after start time");
+      return false;
+    }
+    setTimeError("");
+    return true;
+  };
+
+  // Request notification permission and schedule notification
+  const scheduleNotification = async (title: string, scheduledTime: Date) => {
+    if ('Notification' in window) {
+      if (Notification.permission === 'granted') {
+        // Calculate time until notification
+        const now = new Date();
+        const delay = scheduledTime.getTime() - now.getTime();
+        if (delay > 0) {
+          setTimeout(() => {
+            new Notification(title, {
+              icon: '/icon.png',
+              badge: '/icon.png',
+            });
+          }, delay);
+        }
+      } else if (Notification.permission !== 'denied') {
+        await Notification.requestPermission();
+      }
     }
   };
 
@@ -216,7 +334,18 @@ export default function PlannerPage() {
                     <h3 className={cn("font-black text-[#0F172A] dark:text-white transition-all", task.completed && "line-through text-[#94A3B8]")}>
                         {task.title}
                     </h3>
-                    <div className="flex items-center gap-4 mt-1">
+                    <div className="flex items-center gap-4 mt-2 flex-wrap">
+                        {task.start_time && task.end_time && (
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-[#0D9488]">
+                            <Clock size={12} />
+                            {task.start_time} → {task.end_time} {task.duration_minutes && `(${Math.floor(task.duration_minutes / 60) > 0 ? Math.floor(task.duration_minutes / 60) + 'h ' : ''}${task.duration_minutes % 60 > 0 ? (task.duration_minutes % 60) + 'm' : ''})`}
+                          </div>
+                        )}
+                        {task.notes && (
+                          <div className="text-[10px] font-semibold text-[#94A3B8] px-2 py-1 bg-[#F1F5F9] dark:bg-[#0F172A] rounded-lg">
+                            {task.notes.substring(0, 20)}...
+                          </div>
+                        )}
                         <div className="flex items-center gap-1.5 text-[10px] font-black text-[#94A3B8] uppercase tracking-widest">
                         <Clock size={12} /> Scheduled
                         </div>
@@ -253,7 +382,7 @@ export default function PlannerPage() {
               className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-3rem)] max-w-md bg-white dark:bg-[#1E293B] p-10 rounded-[3rem] shadow-2xl z-[70]"
             >
               <h3 className="text-2xl font-black text-[#0F172A] dark:text-white mb-8">New Task</h3>
-              <div className="space-y-6">
+              <div className="space-y-6 max-h-[85vh] overflow-y-auto pr-2">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-[#94A3B8] uppercase tracking-widest ml-1">Task Title</label>
                   <input 
@@ -264,6 +393,7 @@ export default function PlannerPage() {
                     className="w-full bg-[#F8FAFC] dark:bg-[#0F172A] border-2 border-[#F1F5F9] dark:border-white/5 rounded-2xl px-5 py-4 font-bold focus:ring-2 focus:ring-[#0D9488]/20 focus:border-[#0D9488] transition-all dark:text-white" 
                   />
                 </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-[#94A3B8] uppercase tracking-widest ml-1">Date</label>
@@ -278,12 +408,105 @@ export default function PlannerPage() {
                     </div>
                   </div>
                 </div>
+
+                {/* Start Time & End Time */}
+                <div className="space-y-3 p-4 bg-[#F8FAFC] dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-white/5 rounded-2xl">
+                  <h4 className="text-xs font-black text-[#0D9488] uppercase tracking-widest">⏰ Start Time & End Time</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-bold text-[#94A3B8] uppercase tracking-widest ml-1">Start Time</label>
+                      <input 
+                        type="time" 
+                        value={startTime ? startTime.split(' ')[0] : ""}
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            const [h, m] = e.target.value.split(':');
+                            const hour = parseInt(h);
+                            const period = hour >= 12 ? 'PM' : 'AM';
+                            const displayHour = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
+                            setStartTime(`${displayHour.toString().padStart(2, '0')}:${m} ${period}`);
+                          } else {
+                            setStartTime("");
+                          }
+                          validateTimes();
+                        }}
+                        className="w-full bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-white/10 rounded-lg px-3 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-[#0D9488]/20 focus:border-[#0D9488] transition-all dark:text-white"
+                      />
+                      {startTime && (
+                        <div className="text-[9px] font-bold text-[#0D9488] ml-1">{startTime}</div>
+                      )}
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-bold text-[#94A3B8] uppercase tracking-widest ml-1">End Time</label>
+                      <input 
+                        type="time" 
+                        value={endTime ? endTime.split(' ')[0] : ""}
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            const [h, m] = e.target.value.split(':');
+                            const hour = parseInt(h);
+                            const period = hour >= 12 ? 'PM' : 'AM';
+                            const displayHour = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
+                            setEndTime(`${displayHour.toString().padStart(2, '0')}:${m} ${period}`);
+                          } else {
+                            setEndTime("");
+                          }
+                          validateTimes();
+                        }}
+                        className="w-full bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-white/10 rounded-lg px-3 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-[#0D9488]/20 focus:border-[#0D9488] transition-all dark:text-white"
+                      />
+                      {endTime && (
+                        <div className="text-[9px] font-bold text-[#0D9488] ml-1">{endTime}</div>
+                      )}
+                    </div>
+                  </div>
+                  {timeError && (
+                    <div className="text-xs font-bold text-[#FF5C5C] bg-[#FF5C5C]/5 px-3 py-2 rounded-lg ml-1">
+                      {timeError}
+                    </div>
+                  )}
+                  {calculateDuration() && (
+                    <div className="text-xs font-bold text-[#0D9488] bg-[#0D9488]/5 px-3 py-2 rounded-lg ml-1">
+                      ⏱ Duration: {calculateDuration()}
+                    </div>
+                  )}
+                </div>
+
+                {/* Reminder Options */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase tracking-widest ml-1">🔔 Reminder</label>
+                  <select 
+                    value={reminderMinutes}
+                    onChange={(e) => setReminderMinutes(parseInt(e.target.value))}
+                    className="w-full bg-[#F8FAFC] dark:bg-[#0F172A] border-2 border-[#F1F5F9] dark:border-white/5 rounded-2xl px-5 py-4 font-bold focus:ring-2 focus:ring-[#0D9488]/20 focus:border-[#0D9488] transition-all dark:text-white"
+                  >
+                    <option value={0}>At start time</option>
+                    <option value={5}>5 mins before</option>
+                    <option value={10}>10 mins before</option>
+                    <option value={15}>15 mins before</option>
+                    <option value={30}>30 mins before</option>
+                  </select>
+                </div>
+
+                {/* Notes */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase tracking-widest ml-1">📝 Notes (Optional)</label>
+                  <textarea 
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Add any extra details..." 
+                    rows={3}
+                    className="w-full bg-[#F8FAFC] dark:bg-[#0F172A] border-2 border-[#F1F5F9] dark:border-white/5 rounded-2xl px-5 py-4 font-medium focus:ring-2 focus:ring-[#0D9488]/20 focus:border-[#0D9488] transition-all dark:text-white resize-none"
+                  />
+                </div>
+
                 <button 
                   onClick={addTask}
                   disabled={isAdding || !newTaskTitle.trim()}
-                  className="w-full py-5 bg-[#0D9488] text-white rounded-[2rem] font-black shadow-xl shadow-[#0D9488]/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
+                  className="w-full py-5 bg-[#0D9488] text-white rounded-[2rem] font-black shadow-xl shadow-[#0D9488]/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  {isAdding ? "Adding..." : "Create Task"}
+                  <Check size={20} />
+                  {isAdding ? "Creating..." : "Create Task"}
                 </button>
               </div>
             </motion.div>
