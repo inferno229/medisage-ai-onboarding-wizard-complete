@@ -90,17 +90,26 @@ export default function VaultPage() {
       const fileName = `${Math.random()}.${fileExt}`;
       const filePath = `${user.id}/${fileName}`;
 
+      console.log("[v0] Starting upload for file:", file.name);
+
       // 1. Upload to Storage
       const { error: uploadError } = await supabase.storage
         .from('medical_reports')
         .upload(filePath, file);
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error("[v0] Upload error:", uploadError);
+        throw new Error(`Storage upload failed: ${uploadError.message}`);
+      }
+
+      console.log("[v0] File uploaded successfully, getting public URL");
 
       // 2. Get Public URL
       const { data: { publicUrl } } = supabase.storage
         .from('medical_reports')
         .getPublicUrl(filePath);
+
+      console.log("[v0] Public URL obtained:", publicUrl);
 
       // 3. Save to Table
       const { data, error: dbError } = await supabase
@@ -115,12 +124,18 @@ export default function VaultPage() {
         .select()
         .single();
 
-      if (dbError) throw dbError;
+      if (dbError) {
+        console.error("[v0] Database insert error:", dbError);
+        throw new Error(`Failed to save file record: ${dbError.message}`);
+      }
+
+      console.log("[v0] File record created successfully");
       if (data) setFiles(prev => [data, ...prev]);
 
     } catch (err) {
-      console.error("Upload failed", err);
-      alert("Upload failed. Please try again.");
+      const errorMessage = err instanceof Error ? err.message : "Unknown error occurred";
+      console.error("[v0] Upload failed:", errorMessage);
+      alert(`Upload failed: ${errorMessage}`);
     } finally {
       setUploading(false);
     }
@@ -150,6 +165,7 @@ export default function VaultPage() {
     setAnalysisResult(null);
 
     try {
+      console.log("[v0] Starting analysis for file:", file.name);
       const response = await fetch("/api/analyze-report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -159,10 +175,28 @@ export default function VaultPage() {
           profile
         })
       });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error("[v0] API response error:", errorData);
+        throw new Error(errorData.error || `API returned ${response.status}`);
+      }
+
       const data = await response.json();
+      console.log("[v0] Analysis result received:", data);
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
       setAnalysisResult(data);
     } catch (err) {
-      console.error("Analysis failed", err);
+      const errorMessage = err instanceof Error ? err.message : "Unknown error";
+      console.error("[v0] Analysis failed:", errorMessage);
+      setAnalysisResult({ 
+        error: true, 
+        message: errorMessage
+      });
     } finally {
       setAnalyzing(false);
     }
@@ -315,6 +349,12 @@ export default function VaultPage() {
                     <h3 className="text-2xl font-black text-[#0F172A] dark:text-white">Analyzing your report...</h3>
                     <p className="text-[#64748B] dark:text-[#94A3B8] font-medium mt-2">Connecting with medical research engines.</p>
                   </div>
+                </div>
+              ) : analysisResult?.error ? (
+                <div className="py-20 text-center space-y-4">
+                  <AlertTriangle className="mx-auto text-orange-500" size={48} />
+                  <p className="font-black text-[#0F172A] dark:text-white">{analysisResult.message || "Something went wrong with the analysis."}</p>
+                  <button onClick={() => setExplainingId(null)} className="text-xs font-black text-[#0D9488] uppercase">Close</button>
                 </div>
               ) : analysisResult ? (
                 <div className="space-y-10">
