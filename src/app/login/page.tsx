@@ -19,9 +19,12 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
     try {
+      console.log("[v0] Login form submitted");
       await login(email, password);
     } catch (err: any) {
-      setError(err.message || "Failed to login");
+      const errorMessage = err.message || "Failed to login";
+      console.error("[v0] Login error caught:", errorMessage);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -99,9 +102,14 @@ export default function LoginPage() {
               <motion.div 
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
-                className="bg-red-50 text-red-500 text-xs font-black px-4 py-3 rounded-xl border border-red-100"
+                className="bg-red-50 text-red-600 text-xs font-bold px-4 py-3 rounded-xl border border-red-200 space-y-2"
               >
-                {error}
+                <p>{error}</p>
+                {error.includes("confirm") && (
+                  <p className="text-red-500 text-[10px]">
+                    If you don't see the email, check your spam folder. If you still can't find it, you can create a new account with a different email.
+                  </p>
+                )}
               </motion.div>
             )}
 

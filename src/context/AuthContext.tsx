@@ -96,14 +96,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user, loading, pathname, router]);
 
   const login = async (email: string, password: string) => {
+    console.log("[v0] Attempting login with email:", email);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    
     if (error) {
+      console.error("[v0] Login error:", error);
+      // Provide more user-friendly error messages
+      if (error.message.includes("Invalid login credentials")) {
+        throw new Error("Invalid email or password. Please check and try again.");
+      }
+      if (error.message.includes("Email not confirmed")) {
+        throw new Error("Please confirm your email address before logging in. Check your inbox for a confirmation link.");
+      }
       throw new Error(error.message);
     }
+    
+    console.log("[v0] Login successful, user ID:", data.user?.id);
     setUser(mapSupabaseUser(data.user));
   };
 
   const signup = async (name: string, email: string, password: string, avatar: string) => {
+    console.log("[v0] Attempting signup with email:", email);
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -117,15 +130,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     if (error) {
+      console.error("[v0] Signup error:", error);
       throw new Error(error.message);
     }
 
+    console.log("[v0] Signup successful, user ID:", data.user?.id);
+
     if (data.user && !data.session) {
       // If session is null, it means email confirmation is likely required
-      throw new Error("Verification email sent! Please confirm your email address to log in.");
+      console.log("[v0] Email confirmation required");
+      throw new Error("Verification email sent! Please check your inbox and confirm your email address to log in.");
     }
 
     if (data.user) {
+      console.log("[v0] User automatically logged in after signup");
       setUser(mapSupabaseUser(data.user));
     }
   };
